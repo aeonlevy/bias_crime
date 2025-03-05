@@ -1,0 +1,223 @@
+
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+
+
+Bias_Crime_og <- read_csv("Bias_Crime.csv")
+
+
+Bias_Crime <- mutate(Bias_Crime_og, SEASON = 
+    ifelse(MONTH %in% c(12, 1, 2), "Winter",
+      ifelse(MONTH %in% 3:5, "Spring",
+        ifelse(MONTH %in% 6:8, "Summer", "Fall"))))
+
+
+Bias_Crime %>% 
+  group_by(REPORT_YEAR, MONTH, SEASON, WARD, TYPE_OF_HATE_BIAS) %>%
+  summarize(count = n()) -> Bias_Crime_Clean
+
+
+ggplot(Bias_Crime_Clean, aes(x = SEASON, y = count, color = TYPE_OF_HATE_BIAS, group = TYPE_OF_HATE_BIAS)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~REPORT_YEAR) +
+  labs(x = "Season", y = "Count", color = "Type", title = "Counts by Type Over Seasons") + coord_flip()
+
+ggplot(Bias_Crime_Clean, aes(x = TYPE_OF_HATE_BIAS, y = count)) +
+  geom_point() +
+  coord_flip() +
+  labs(x = "Type", y = "Count", title = "Counts by Type")   
+
+# Predict the expected number of hate crimes in a ward in a month
+
+ggplot(Bias_Crime_Clean, aes(x = WARD, y = count)) +
+  geom_point() +
+  labs(x = "Ward", y = "Count", title = "Counts by Type")   
+
+ggplot(Bias_Crime_Clean, aes(x = MONTH, y = count)) +
+  geom_point() +
+  scale_x_continuous(breaks = seq(1, 12, by = 1))
+  labs(x = "Month", y = "Count", title = "Counts by Month") 
+  
+# Predict the expected type of a hate crime in a ward 
+  
+ward_type_counts <- Bias_Crime_Clean %>%
+  group_by(WARD, TYPE_OF_HATE_BIAS) %>%
+  summarize(count = n()) %>%
+  ungroup()
+ward_top_types <- ward_type_counts %>%
+  group_by(WARD) %>%
+  top_n(3, count) %>%
+  ungroup()
+ggplot(ward_top_types, aes(x = WARD, y = count, fill = TYPE_OF_HATE_BIAS)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Ward", y = "Count of Hate Crimes", title = "Top 3 Types of Hate Crimes in Each Ward") +
+  scale_fill_brewer(palette = "Set3") +  # Set color palette
+  theme_minimal()
+
+month_type_counts <- Bias_Crime_Clean %>%
+  group_by(MONTH, TYPE_OF_HATE_BIAS) %>%
+  summarize(count = n()) %>%
+  ungroup()
+month_top_types <- month_type_counts %>%
+  group_by(MONTH) %>%
+  top_n(3, count) %>%
+  ungroup()
+ggplot(month_top_types, aes(x = MONTH, y = count, fill = TYPE_OF_HATE_BIAS)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Month", y = "Count of Hate Crimes", title = "Top 3 Types of Hate Crimes in Each Month") +
+  scale_fill_brewer(palette = "Set3") +  # Set color palette
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(1, 12, by = 1))
+```
+
+1. Predict the expected number of hate crimes in a ward in a month. 
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+
+Bias_Crime_Clean$MONTH <- as.factor(Bias_Crime_Clean$MONTH)
+
+poly_model <- lm(count ~ poly(as.numeric(MONTH), degree = 2) + WARD, data = Bias_Crime_Clean)
+
+new_data <- expand.grid(WARD = unique(Bias_Crime_Clean$WARD), MONTH = unique(Bias_Crime_Clean$MONTH))
+new_data$MONTH_poly <- poly(as.numeric(new_data$MONTH), degree = 2)
+predicted_counts <- predict(poly_model, newdata = new_data)
+
+
+library(ggplot2)
+ggplot(data.frame(new_data, predicted_counts), aes(x = WARD, y = MONTH, fill = predicted_counts)) +
+  geom_tile() +
+  scale_x_discrete(labels = unique(Bias_Crime_Clean$MONTH)) +
+  scale_fill_gradient(low = "white", high = "blue") +
+  labs(x = "Ward", y = "Month", fill = "Predicted Count") +
+  theme_minimal()
+```
+
+
+```{r}
+library(ggplot2)
+
+Bias_Crime_Clean$MONTH <- as.factor(Bias_Crime_Clean$MONTH)
+
+poly_model <- lm(count ~ poly(as.numeric(MONTH), degree = 2) + WARD, data = Bias_Crime_Clean)
+
+new_data <- expand.grid(WARD = unique(Bias_Crime_Clean$WARD), MONTH = unique(Bias_Crime_Clean$MONTH))
+new_data$MONTH_poly <- poly(as.numeric(new_data$MONTH), degree = 2)
+predicted_counts <- predict(poly_model, newdata = new_data)
+
+ggplot(data.frame(new_data, predicted_counts), aes(x = MONTH, y = predicted_counts, group = WARD, color = as.factor(WARD))) +
+  geom_line() +
+  labs(x = "Month", y = "Predicted Count", color = "Ward", title = "Predicted Hate Crime Counts by Month and Ward") +
+  theme_minimal()
+```
+
+
+2. Decision tree - Predict the expected type of a hate crime in a ward. 
+
+```{r}
+summary(Bias_Crime_Clean$TYPE_OF_HATE_BIAS)
+```
+
+```{r}
+set.seed(1234)
+
+tr <- tree(as.factor(TYPE_OF_HATE_BIAS) ~., data = Bias_Crime_Clean)
+cv <- cv.tree(tr)
+cv
+```
+```{r}
+tr_opt <- prune.tree(tr, best = 4)
+summary(tr_opt)
+```
+
+```{r}
+library(randomForest)
+
+clean_data1 <- Bias_Crime_Clean[, !(names(Bias_Crime_Clean) %in% "SEASON")]
+clean_dataZ <- na.omit(clean_data1)
+
+Bias_Crime_Clean$TYPE_OF_HATE_BIAS <- as.factor(Bias_Crime_Clean$TYPE_OF_HATE_BIAS)
+Bias_Crime_Clean$WARD <- as.factor(Bias_Crime_Clean$WARD)
+
+BAG <- randomForest(TYPE_OF_HATE_BIAS ~ REPORT_YEAR + MONTH + WARD + count, 
+                    mtry = 4,
+                    data = clean_dataZ)
+BAG
+```
+
+```{r}
+Yhat <- predict(BAG, clean_dataZ)
+table(Yhat, clean_dataZ$TYPE_OF_HATE_BIAS)
+```
+
+```{r}
+mean(Yhat != clean_dataZ$TYPE_OF_HATE_BIAS)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+Bias_Crime_Clean$MONTH <- as.factor(Bias_Crime_Clean$MONTH)
+hate <- subset(Bias_Crime_Clean, TYPE_OF_HATE_BIAS %in% c('Ethnicity/National Origin', 'Race', 'Sexual Orientation'))
+
+hate_summary <- hate %>%
+  group_by(MONTH, TYPE_OF_HATE_BIAS) %>%
+  summarize(count = n())
+
+ggplot(hate_summary, aes(x = MONTH, y = count, color = TYPE_OF_HATE_BIAS)) +
+  geom_jitter() +
+  labs(x = "Month", y = "Count", color = "Type of Hate Bias", title = "Distribution of Hate Crimes by Month")
+```
+
+
+```{r}
+set.seed(123)
+
+tr <- tree(as.factor(TYPE_OF_HATE_BIAS) ~ MONTH, data = Bias_Crime_Clean)
+ward_2_data <- subset(Bias_Crime_Clean, WARD == "Ward 2")
+predictions <- predict(tr, newdata = ward_2_data)
+table(predictions)
+```
+
+
+```{r}
+hate_levels <- levels(ward_2_data$TYPE_OF_HATE_BIAS)
+
+predicted_categories <- as.factor(predictions)
+levels(predicted_categories) <- hate_levels
+
+table(predicted_categories)
+```
+
+```{r}
+plot(BAG)
+```
+
+```{r}
+plotdf <- pivot_longer(data.frame(ntrees = 1:nrow(BAG$err.rate),BAG$err.rate),
+                       -ntrees)
+ggplot(plotdf,aes(x = value,y = ntrees, col = name)) +
+geom_line() + theme_bw()
+```
+```{r}
+# Extract the unique names
+unique_names <- unique(plotdf$name)
+
+# Select the specific indices corresponding to the third, eleventh, and seventeenth unique values
+indices <- c(4, 11, 17)
+
+# Filter the plotdf dataframe to include only these indices
+filtered_plotdf <- plotdf[plotdf$name %in% unique_names[indices], ]
+
+# Plot the filtered dataframe
+ggplot(filtered_plotdf, aes(x = value, y = ntrees, col = name)) +
+  geom_line() + 
+  theme_bw()
+
+```
+

@@ -1,0 +1,244 @@
+
+
+```{r}
+library(MASS)
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(ISLR2)
+library(class)
+library(stats)   
+library(ggplot2) 
+library(tidyverse)
+library(pls)
+library(car)
+library(caret)
+library(gridExtra)
+library(forcats)
+
+```
+
+```{r}
+
+
+Bias_Crime_og <- read_csv("Bias_Crime.csv")
+
+Bias_Crime <- mutate(Bias_Crime_og, SEASON = 
+    ifelse(MONTH %in% c(12, 1, 2), "Winter",
+      ifelse(MONTH %in% 3:5, "Spring",
+        ifelse(MONTH %in% 6:8, "Summer", "Fall"))))
+
+
+Bias_Crime %>% 
+  group_by(REPORT_YEAR, MONTH, SEASON, WARD, TYPE_OF_HATE_BIAS) %>%
+  summarize(count = n()) -> Bias_Crime_Clean2
+
+```
+```{r}
+ggplot(meep1, aes(MONTH, count, color = TYPE_OF_HATE_BIAS)) +
+  geom_point() ->
+  plot_home
+plot_home
+```
+
+```{r}
+sapply(Bias_Crime_Clean1, class)
+sapply(meep, class)
+
+meep1 <- subset(Bias_Crime_Clean2, TYPE_OF_HATE_BIAS %in% c('Ethnicity/National Origin', 'Race', 'Sexual Orientation', 'Religion','Gender','Gender Identity/Expression'))
+
+
+
+# Bias_Crime_Clean1$TYPE_OF_HATE_BIAS <- as.factor(Bias_Crime_Clean1$TYPE_OF_HATE_BIAS)
+# Bias_Crime_Clean1$WARD <- as.factor(Bias_Crime_Clean1$WARD)
+# Bias_Crime_Clean1$count <- as.factor(Bias_Crime_Clean1$WARD)
+
+LDA_result <-  lda(TYPE_OF_HATE_BIAS ~ MONTH+count, data = meep1)
+LDA_result
+```
+```{r}
+table(meep1$TYPE_OF_HATE_BIAS)/nrow(meep1)
+```
+```{r}
+LDA_result1 <-  lda(TYPE_OF_HATE_BIAS ~ MONTH+count, CV = TRUE, data = meep1)
+LDA_result1$class[1:100]
+```
+```{r}
+data.frame(LDA_result1$posterior, LDA_result1$class) |> slice_sample(n = 100) 
+```
+
+
+```{r}
+# create data frame with classifications and true values
+
+
+lda_df <- tibble( month= meep1$MONTH, count = meep1$count,
+                 class = LDA_result1$class) |> 
+  #  rownames_to_column() |>
+  # arrange(as.numeric(meep$TYPE_OF_HATE_BIAS)) |>
+  bind_cols(true_q = meep1$TYPE_OF_HATE_BIAS)
+
+ggplot(lda_df, aes(month, count, color = class)) +
+  geom_point(alpha = .5, size = .5) ->
+  plot_class
+plot_class
+
+
+
+plot_class +
+  geom_point(data = lda_df[lda_df$class != lda_df$true_q,],
+             mapping = aes(month, count, color = true_q), shape = 2, size = 3) +
+  ggtitle("LDA Classification Errors where Triangle color is the true 'TYPE_OF_HATE_BIAS'")
+
+
+```
+```{r}
+round(100*sum(lda_df$class != lda_df$true_q) / nrow(meep), 2)
+```
+###QDA
+```{r}
+QDA_result <-  qda(TYPE_OF_HATE_BIAS ~ MONTH+count, data = meep1,
+                   CV = TRUE)
+QDA_result$class[1:20]
+```
+```{r}
+QDA_result$posterior[1:15]
+```
+```{r}
+data.frame(QDA_result$posterior, QDA_result$class) |> slice_sample(n = 100) 
+```
+
+```{r}
+qda_df <- tibble( month= meep1$MONTH, count = meep1$count,
+                 class = QDA_result$class) |> 
+  #  rownames_to_column() |>
+  # arrange(as.numeric(meep$TYPE_OF_HATE_BIAS)) |>
+  bind_cols(true_q = meep1$TYPE_OF_HATE_BIAS)
+
+
+ggplot(qda_df, aes(month, count, color = class)) +
+  geom_point(alpha = .5) ->
+  plot_classq
+plot_classq
+
+plot_classq +
+  geom_point(data = qda_df[qda_df$class != qda_df$true_q,], 
+             mapping = aes(month, count, color = true_q), shape = 2, size = 3) +
+  ggtitle("QDA Classification Errors where Triangle color is the true TYPE_OF_HATE_BIAS")
+```
+```{r}
+round(100 * sum(qda_df$class != qda_df$true_q) / nrow(meep1), 2)
+```
+
+```{r}
+####How many 
+bias_counts <- table(meep1$TYPE_OF_HATE_BIAS)
+
+# Print the counts
+print(bias_counts)
+
+```
+
+
+```{r}
+### less multi in reduced but maybe high in full 
+yay <- lm(count ~ poly(as.numeric(MONTH), degree = 2) + WARD, data = Bias_Crime_Clean2)
+vif_values <-vif(yay)
+print(vif_values)
+
+```
+
+```{r}
+### can we predict count based on month and ward??
+
+### predict count based on month and ward??
+###principle component analysis
+Bias_Crime_Clean2
+reg1 <- lm(count ~ poly(as.numeric(MONTH), degree = 2) + WARD, data = Bias_Crime_Clean2)
+X <-model.matrix(reg1)
+X |> head()
+### principal components of the design matrix X
+pc <- stats::prcomp(X)
+pc
+
+###idk
+100*(pc$sdev^2/sum(pc$sdev^2)) |> round(3)
+
+### add the sum of the squares of the coefficients for each combination
+map_dbl(as.data.frame(pc$rotation), ~ sum(.^2))
+
+###see results for the principal components.
+summary(pc)
+
+###use a scree plot to see this cumulative sum.
+screeplot(pc)
+
+###look at the coefficients
+pc$rotation[,1] |> round(3)
+
+```
+```{r}
+summary(pc) 
+```
+
+
+```{r}
+pc_s <- prcomp(X[,-1], scale = TRUE)
+pc_s
+summary(pc_s)
+screeplot(pc_s)
+```
+
+
+```{r}
+(100*(pc$sdev^2/sum(pc$sdev^2)) |> round(2)) |> cumsum()
+```
+```{r}
+pcr_reg <- pcr(count ~ poly(as.numeric(MONTH), degree = 2) + WARD, data = Bias_Crime_Clean2, scale = TRUE)
+summary(pcr_reg)
+```
+
+```{r}
+##cross val
+set.seed(1234) 
+pcr_reg2 <- pcr(count ~ poly(as.numeric(MONTH), degree = 2) + WARD, data = Bias_Crime_Clean2, scale = TRUE, validation = "CV")
+summary(pcr_reg2)
+MSEP(pcr_reg2)
+
+```
+```{r}
+pcr_reg3 <- pcr(count ~ poly(as.numeric(MONTH), degree = 2) + WARD, data = Bias_Crime_Clean2,scale = TRUE, ncomp = 5)
+summary(pcr_reg3)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

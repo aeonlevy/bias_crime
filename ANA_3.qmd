@@ -1,0 +1,196 @@
+
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(gridExtra)
+library(forcats)
+```
+
+```{r}
+#load data
+Bias_Crime_og <- read_csv("Bias_Crime.csv")
+```
+
+## Exploratory Analysis 
+
+```{r}
+#add season
+Bias_Crime_og %>%
+  mutate(SEASON = case_when(
+    MONTH %in% c(12, 1, 2) ~ "Winter",
+    MONTH %in% 3:5 ~ "Spring",
+    MONTH %in% 6:8 ~ "Summer",
+    TRUE ~ "Fall"
+  )) %>%
+  group_by(WARD, SEASON) %>%
+  summarize(count = n(), .groups = "drop") -> Bias_Crime
+
+# Predict the number of hate crimes in a ward in a month
+
+ggplot(Bias_Crime, aes(x = WARD, y = count, fill= SEASON)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set3") +
+  labs(x = "Ward", y = "Count", title = "Counts by Ward")
+
+ggplot(Bias_Crime, aes(x = SEASON, y = count, fill = WARD)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2") +
+  labs(x = "Season", y = "Count", title = "Counts by Season")
+
+
+# Predict the type of hate crime in a ward
+
+ward_type_counts <- Bias_Crime_og %>%
+  group_by(WARD, TYPE_OF_HATE_BIAS) %>%
+  summarize(count = n()) %>%
+  ungroup()
+ward_top_types <- ward_type_counts %>%
+  group_by(WARD) %>%
+  top_n(3, count) %>%
+  ungroup()
+
+ggplot(ward_top_types, aes(x = WARD, y = count, fill = TYPE_OF_HATE_BIAS)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Ward", y = "Count of Hate Crimes", title = "Top 3 Types of Hate Crimes in Each Ward") +
+  scale_fill_brewer(palette = "Set3") +  # Set color palette
+  theme_minimal() + 
+  coord_flip()
+
+
+```
+
+## Prediction: Predict the number of hate crimes in a ward in a month?
+
+```{r}
+Bias_Crime_og %>% 
+  group_by(MONTH, WARD) %>%
+  mutate(WARD = as.numeric(sub("Ward ", "", WARD))) %>% 
+  summarize(count = n(), .groups = "drop") %>%  
+  filter(complete.cases(.)) -> bc1
+
+# 10-fold cross-validation 
+ctrl <- trainControl(method = "cv", number = 10)
+
+# LINEAR MODEL
+
+lm_model <- train(count ~ ., data = bc1, method = "lm", trControl = ctrl)
+lm_pred <- predict(lm_model, newdata = bc1)
+lm_results <- data.frame(Observed = bc1$count, Predicted = lm_pred)
+
+lm_plot <- ggplot(lm_results, aes(x = Observed, y = Predicted)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red") +
+  labs(x = "Observed", y = "Predicted", title = "Linear Regression")
+
+lm_squared_error <- mean((lm_results$Observed - lm_results$Predicted)^2)
+
+lm_r_squared <- summary(lm_model)$r.squared
+
+# POLYNOMIAL MODEL
+
+poly_model <- train(count ~ poly(MONTH, 2, raw = TRUE) + poly(WARD, 2, raw = TRUE), data = bc1, method = "lm", trControl = ctrl)
+poly_pred <- predict(poly_model, newdata = bc1)
+poly_results <- data.frame(Observed = bc1$count, Predicted = poly_pred)
+
+poly_plot <- ggplot(poly_results, aes(x = Observed, y = Predicted)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red") +
+  labs(x = "Observed", y = "Predicted", title = "Polynomial Regression")
+
+poly_squared_error <- mean((poly_results$Observed - poly_results$Predicted)^2)
+
+poly_r_squared <- summary(poly_model)$r.squared
+
+# RIDGE MODEL
+
+ridge_model <- train(count ~ ., data = bc1, method = "glmnet", trControl = ctrl, tuneGrid = expand.grid(alpha = 0, lambda = seq(0, 1, by = 0.1)))
+
+ridge_plot <- plot(ridge_model) 
+
+ridge_squared_error <- mean((predict(ridge_model, newdata = bc1) - bc1$count)^2)
+
+ridge_r_squared <- cor(predict(ridge_model, newdata = bc1), bc1$count)^2
+
+# LASSO MODEL
+
+lasso_model <- train(count ~ ., data = bc1, method = "glmnet", trControl = ctrl, tuneGrid = expand.grid(alpha = 1, lambda = seq(0, 1, by = 0.1)))
+
+lasso_plot <- plot(lasso_model) 
+
+lasso_squared_error <- mean((predict(lasso_model, newdata = bc1) - bc1$count)^2)
+
+lasso_r_squared <- cor(predict(lasso_model, newdata = bc1), bc1$count)^2
+
+# RESULTS
+
+grid.arrange(lm_plot, poly_plot, ridge_plot, lasso_plot, ncol = 2)
+
+comparison <- data.frame(
+  Model = c("Linear Regression", "Polynomial Regression", "Ridge Regression", "Lasso Regression"),
+  Squared_Error = c(lm_squared_error, poly_squared_error, ridge_squared_error, lasso_squared_error),
+  R_squared = c(lm_r_squared, poly_r_squared, ridge_r_squared, lasso_r_squared)
+)
+
+comparison
+
+# RECCOMENDATION
+
+summary(poly_model)
+```
+
+## Classification : Predict the type of hate bias in a ward. 
+
+```{r}
+Bias_Crime_og %>% 
+  select(TYPE_OF_HATE_BIAS, WARD) %>% 
+  mutate(TYPE_OF_HATE_BIAS = as.factor(TYPE_OF_HATE_BIAS)) %>% 
+  mutate(WARD = as.factor(WARD)) %>% 
+  mutate(TYPE_OF_HATE_BIAS = fct_lump(TYPE_OF_HATE_BIAS, n = 5)) %>% 
+  na.omit()-> bc2
+
+# 10-fold cross-validation 
+ctrl <- trainControl(method = "cv", number = 10)
+
+# subset data
+set.seed(123)
+train_index <- createDataPartition(bc2$TYPE_OF_HATE_BIAS, p = 0.8, list = FALSE)
+train_data <- bc2[train_index, ]
+test_data <- bc2[-train_index, ]
+
+# SUPPORT VECTOR MACHINE MODEL
+
+svm_model <- train(TYPE_OF_HATE_BIAS ~ ., 
+                     data = train_data, 
+                     method = "svmPoly", 
+                     trControl = trainControl(method = "cv", number = 10))
+
+svm_plot <- plot(svm_model)
+
+svm_accuracy <- mean(svm_model$results$Accuracy)
+
+# RANDOM FOREST MODEL
+
+rf_model <- train(TYPE_OF_HATE_BIAS ~ ., 
+                     data = train_data, 
+                     method = "rf", 
+                     trControl = trainControl(method = "cv", number = 10))
+
+rf_plot <- plot(rf_model)
+
+rf_accuracy <- mean(rf_model$results$Accuracy)
+
+# RESULTS
+
+grid.arrange(svm_plot, rf_plot, ncol = 2)
+
+metrics_df <- data.frame(
+  Model = c("SVM", "Random Forest"),
+  Accuracy = c(svm_accuracy, rf_accuracy))
+
+metrics_df
+```
+
