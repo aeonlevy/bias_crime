@@ -1,0 +1,161 @@
+---
+title: "Analysis of Bias-Related Crimes in Washington, D.C."
+author: "By Aeon Levy "
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    highlight: tango
+---
+```{r}
+library(ggplot2)
+library(dplyr)
+library(broom)
+library(nnet) 
+```
+
+```{r setup, include=FALSE}
+crime2 <- read.csv("yay.csv")
+stat_crime<- crime2
+head(crime2)
+print(crime2)
+
+```
+# Introduction to the Issue
+
+Bias-related crimes represent a profound societal issue, as they specifically target individuals based on protected characteristics such as race, religion, sexual orientation, and gender identity. These crimes are legally defined under the Bias-Related Crime Act of 1989. In this analysis, we focus on understanding trends in bias-related crimes across Washington, D.C., spanning from 2013 to the present. Our goal is to identify which types of bias are most prevalent, explore how they vary over time and across geographic areas, and assess how certain variables, including location, type of bias, and temporal factors, influence the occurrence of these crimes.
+
+# Exploratory Data Analysis
+
+Our analysis is based on a dataset obtained from [Open Data DC], which provides detailed records of criminal activities in Washington, D.C. This dataset includes a variety of key variables that are critical to understanding the scope and distribution of bias-related crimes:
+
+**REPORT_YEAR**: The year in which the crime occurred, allowing us to track temporal patterns in crime occurrence.
+**MONTH**: The month of the crime, which enables us to examine seasonal trends.
+**TYPE_OF_HATE_BIAS**: A categorization of the bias underlying the crime, such as Ethnicity, National Origin, Race, Gender Identity/Sexual Orientation, and Religion.
+**Targeted Group**: A breakdown of the demographic groups targeted by these crimes, categorized by ethno-religious identity.
+**Top Offense Type**: The most common offenses reported in relation to bias crimes, such as petty theft, assault with a deadly weapon (ADW), etc.
+**MAR_YCOORD and MAR_XCOORD**: Geographic coordinates representing the precise location of the crime, which allows for spatial analysis.
+**Date of Offense**: The specific date on which the bias-related crime occurred.
+**Addresses**: The physical address where the crime was reported, which adds additional granularity to the geographic analysis.
+
+## Summary Statistics
+
+The dataset spans from 2013 to 2024 and includes 1,656 recorded bias-related crimes across eight distinct wards in Washington, D.C. The **TYPE_OF_BIAS** variable includes 20 different categories of bias-related crimes, each with its own temporal and geographical distribution.In order to get a clearer picture of the data, we examined the following key metrics:
+**Temporal Trends**: We analyzed the distribution of crimes across different years and months to detect any patterns or anomalies.
+**Ward Distribution**: We explored how crimes are distributed across the eight wards of Washington, D.C. to identify high-incidence areas.
+**Prevalence of Bias Types**: We categorized bias crimes by the type of bias involved, including:
+  **Race**: 
+  **Religion**: 
+  **Gender Identity/Sexual Orientation**: 
+  **Ethnicity and National Origin**:
+  
+# Crime distribution by ward and type of hate bias
+We analyzed the distribution of different types of bias crimes across the wards in Washington, D.C. The dataset reveals patterns in how crimes are distributed geographically. For example, Ethnicity and Gender Idenitiy had the crimes are more prevalent in specific wards, while others are spread more evenly across the city. Below is a bar chart visualizing these trends:
+```{r}
+ward_bias_distribution <- crime2 %>%
+  group_by(WARD, TYPE_OF_HATE_BIAS) %>%
+  summarize(Count = n(), .groups = 'drop')
+print(ward_bias_distribution)
+```
+**Distribution Statistics 
+```{r, echo=FALSE, message=FALSE}
+crime2 %>%
+  group_by(WARD, TYPE_OF_HATE_BIAS) %>%
+  summarize(Count = n(), .groups = 'drop')
+
+print(ward_bias_distribution )
+```
+
+
+
+### Temporal Trends
+
+The analysis revealed key trends in the occurrence of bias-related crimes over time. Some notable findings include periodic spikes in crime rates, particularly in certain months of the year, suggesting seasonal or event-driven patterns. By breaking down these trends further by ward, we identified regions with higher rates of bias-related crimes, which could indicate areas where targeted interventions are necessary.
+
+# Calculate percentages of different hate bias types by ward
+Next, we calculated the percentage of each type of hate bias crime across wards. This helped to understand the relative prevalence of different types of crimes within the overall distribution.
+```{r message=FALSE, warning=FALSE}
+percentages <- crime2 %>%
+  group_by(TYPE_OF_HATE_BIAS, WARD) %>%
+  summarize(Count = n()) %>%
+  mutate(Percentage = (Count / sum(Count)) * 100)
+print(percentages)
+```
+```{r}
+ggplot(percentages, aes(x = TYPE_OF_HATE_BIAS, y = Percentage, fill = Count)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Percentage of Hate Bias by Type",
+       x = "Type of Hate Bias",
+       y = "Percentage") +
+  theme_minimal(base_size = 15)
+```
+# Plot heatmap showing the crime distribution
+We also visualized the geographic distribution of crimes by ward in the form of a heatmap. This visual representation allows us to better understand the concentration of crimes across different areas in Washington, D.C.
+```{r}
+ggplot(percentages, aes(x = TYPE_OF_HATE_BIAS, y = WARD, fill = Count)) +
+  geom_tile(color = "white", width = 1, height = 1) +  # Rectangular tiles with white borders
+  scale_fill_gradient(low = "yellow", high = "red", name = "Crime Count") +  
+  labs(title = "Geographic Distribution of Crimes by Ward",
+       x = "Type of Crime",
+       y = "Ward") +
+  theme_minimal(base_size = 15) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16), 
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(size = 12)
+  )
+```
+
+
+# Regression Analysis
+
+# Chi-Square Test of Independence
+To determine if there is an association between the type of hate bias and the ward in which the crime occurred, we conducted a Chi-Square test of independence. This test helps to determine if the distribution of one variable is independent of the other.
+```{r message=FALSE, warning=FALSE}
+#creating new tables to use for varable analysis
+stat_crime <- crime2
+
+
+
+# Create a contingency table for Chi-Square test
+ct <- table(stat_crime$TYPE_OF_HATE_BIAS, stat_crime$WARD)
+
+# Perform the Chi-Square Test
+chi_square_result <- chisq.test(ct)
+
+# View the test result
+chi_square_result
+
+```
+The Chi-Square test results indicate whether there is a statistically significant relationship between the type of hate bias and the specific wards where these crimes occur. If the p-value is less than 0.05, we can conclude that the two variables are not independent.
+
+#Multinomial Logistic Regression
+We used multinomial logistic regression to predict the type of hate crime based on the ward and year. This approach allows us to model the probabilities of different outcomes when there are more than two categories for the dependent variable (type of hate bias).
+```{r}
+library(lubridate)
+crime2$YEAR_OF_OFFENSE <- year(ymd_hms(crime2$DATE_OF_OFFENSE))
+# Fit the multinomial logistic regression model
+mm <- multinom(TYPE_OF_HATE_BIAS ~ WARD, data = stat_crime)
+mm2 <- multinom(TYPE_OF_HATE_BIAS ~ YEAR_OF_OFFENSE, data = crime2)
+
+
+# Displaying summary of the models
+str(mm)
+summary(mm2)
+summary(mm)
+
+```
+
+
+
+
+The results of the multinomial logistic regression will provide us with the coefficients, which indicate how strongly each predictor (ward or year) influences the likelihood of a particular type of bias crime. We can visualize these coefficients as follows:
+
+#Conclusion
+Through exploratory data analysis and statistical modeling, we have gained insights into the distribution of bias-related crimes across Washington, D.C. The findings suggest significant spatial and temporal patterns in the prevalence of these crimes. Our Chi-Square test and multinomial logistic regression analysis provide evidence that the type of hate bias and the ward in which the crime occurred are not independent, and the year also plays a role in predicting the type of crime. These insights can inform future interventions aimed at reducing hate crimes in the city.
+
